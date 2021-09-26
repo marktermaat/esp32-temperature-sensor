@@ -5,6 +5,8 @@
 #include <WiFi.h>
 #include <SPI.h>
 #include <MQTT.h>
+#include <NTPClient.h>
+#include <ctime>
 
 // Sensor definitions
 #define DHTPIN 32
@@ -12,12 +14,14 @@
 #define uS_TO_S_FACTOR 1000000 /* Conversion factor for micro seconds to seconds */
 DHT_Unified dht(DHTPIN, DHTTYPE);
 sensor_t sensor;
+WiFiUDP ntpUDP;
 
 // Wifi and MQTT definitions
 char ssid[] = SECRET_SSID;
 char pass[] = SECRET_PASS;
 WiFiClient wifiClient;
 MQTTClient mqttClient;
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 3600, 60000);
 
 struct Measurement {
   double temperature;
@@ -27,6 +31,7 @@ struct Measurement {
 void initMQTT();
 void initWifi();
 void initSensor();
+String getCurrentTime();
 Measurement getMeasurement();
 void sendMeasurement(Measurement m);
 
@@ -124,6 +129,17 @@ Measurement getSingleMeasurement() {
   return m; 
 }
 
+String getCurrentTime() {
+
+  timeClient.begin();
+  timeClient.update();
+  delay(1000);
+  time_t now = timeClient.getEpochTime();
+  char buf[sizeof "0000-00-00T00:00:00Z"];
+  strftime(buf, sizeof buf, "%FT%TZ", gmtime(&now));
+  return buf;
+}
+
 Measurement getMeasurement() {
   double totalTemperature = 0;
   double totalHumidity = 0;
@@ -147,6 +163,8 @@ String createEvent(String name, double value) {
 }
 
 void sendMeasurement(Measurement m) {
-  mqttClient.publish("data/temperature/living_room", createEvent("Temperature", m.temperature), false, 1);
-  mqttClient.publish("data/humidity/living_room", createEvent("Humidity", m.humidity), false, 1);
+  String now = getCurrentTime();
+  String event = String("{\"data_type\":\"climate\",\"timestamp\":\"" + now + "\",\"temperature\":") + m.temperature + ",\"humidity\":" + m.humidity + "}";
+  mqttClient.publish("data/climate/living_room", event);
 }
+
